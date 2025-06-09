@@ -11,6 +11,7 @@ class Game {
         );
         
         this.enemies = [];
+        this.healthItems = []; // 新增：儲存回血道具
         this.score = 0;
         this.gameLoop = this.gameLoop.bind(this);
         this.lastEnemySpawn = 0;
@@ -33,17 +34,38 @@ class Game {
     }
 
     setupControls() {
-        // 鍵盤按下事件
+        // 修改玩家控制方向為 WASD
         document.addEventListener('keydown', (e) => {
-            if (this.keys.hasOwnProperty(e.key)) {
-                this.keys[e.key] = true;
+            switch (e.key) {
+                case 'w':
+                    this.keys.ArrowUp = true;
+                    break;
+                case 'a':
+                    this.keys.ArrowLeft = true;
+                    break;
+                case 's':
+                    this.keys.ArrowDown = true;
+                    break;
+                case 'd':
+                    this.keys.ArrowRight = true;
+                    break;
             }
         });
 
-        // 鍵盤放開事件
         document.addEventListener('keyup', (e) => {
-            if (this.keys.hasOwnProperty(e.key)) {
-                this.keys[e.key] = false;
+            switch (e.key) {
+                case 'w':
+                    this.keys.ArrowUp = false;
+                    break;
+                case 'a':
+                    this.keys.ArrowLeft = false;
+                    break;
+                case 's':
+                    this.keys.ArrowDown = false;
+                    break;
+                case 'd':
+                    this.keys.ArrowRight = false;
+                    break;
             }
         });
 
@@ -128,36 +150,44 @@ class Game {
 
     checkCollisions() {
         const now = Date.now();
-        
+
         this.enemies = this.enemies.filter(enemy => {
-            // 檢查子彈碰撞
             let isHit = false;
             this.player.bullets = this.player.bullets.filter(bullet => {
                 if (this.checkCollision(bullet, enemy)) {
                     isHit = true;
                     this.score += 10;
                     document.getElementById('scoreValue').textContent = this.score;
+
+                    // 5% 機率掉落回血道具
+                    if (Math.random() < 0.05) {
+                        this.spawnHealthItem(enemy.x, enemy.y);
+                    }
+
                     return false;
                 }
                 return true;
             });
-            
-            // 檢查與玩家碰撞
+
             if (this.checkCollision(enemy, this.player) && !this.player.isInvincible) {
                 const damage = Math.floor(Math.random() * 5) + 1;
                 this.player.takeDamage(damage);
                 document.getElementById('hpValue').textContent = this.player.hp;
                 return false;
             }
-            
-            // 檢查是否在畫面外
+
             if (enemy.x < -50 || enemy.x > this.canvas.width + 50 ||
                 enemy.y < -50 || enemy.y > this.canvas.height + 50) {
                 return false;
             }
-            
+
             return !isHit;
         });
+    }
+
+    spawnHealthItem(x, y) {
+        // 在指定位置生成回血道具
+        this.healthItems.push({ x, y, width: 20, height: 20, color: 'green' });
     }
 
     checkCollision(rect1, rect2) {
@@ -190,12 +220,31 @@ class Game {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.player.draw(this.ctx);
         this.enemies.forEach(enemy => enemy.draw(this.ctx));
+
+        // 繪製回血道具
+        this.healthItems.forEach(item => {
+            this.ctx.fillStyle = item.color;
+            this.ctx.fillRect(item.x, item.y, item.width, item.height);
+        });
     }
 
     gameLoop() {
+        if (this.player.hp <= 0) {
+            this.displayGameOver();
+            return;
+        }
+
         this.update();
         this.draw();
         requestAnimationFrame(this.gameLoop);
+    }
+
+    displayGameOver() {
+        const ctx = this.ctx;
+        ctx.fillStyle = 'red';
+        ctx.font = '48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over', this.canvas.width / 2, this.canvas.height / 2);
     }
 }
 
