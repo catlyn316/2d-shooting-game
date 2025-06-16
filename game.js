@@ -183,6 +183,16 @@ class Game {
 
             return !isHit;
         });
+
+        // 檢測玩家與回血道具的碰撞
+        this.healthItems = this.healthItems.filter(item => {
+            if (this.checkCollision(item, this.player)) {
+                this.player.hp = Math.min(this.player.hp + 10, this.player.maxHp); // 增加玩家生命值，且不超過最大值
+                document.getElementById('hpValue').textContent = this.player.hp; // 更新生命值顯示
+                return false; // 移除已被拾取的回血道具
+            }
+            return true;
+        });
     }
 
     spawnHealthItem(x, y) {
