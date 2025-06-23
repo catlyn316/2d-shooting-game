@@ -34,6 +34,9 @@ class Game {
         this.nextBossKill = this.getRandomBossKill();
         
         this.isVictory = false; // 新增：勝利旗標
+        this.isPaused = false; // 新增：暫停狀態
+        this.remainingTime = 0; // 新增：倒數計時
+        this.bgmDuration = 0; // 新增：背景音樂時長
         
         this.setupControls();
         this.gameLoop();
@@ -62,6 +65,9 @@ class Game {
                 case ' ': // 空白鍵發射導彈
                     e.preventDefault();
                     this.player.shootMissile();
+                    break;
+                case 'Escape': // ESC 鍵暫停/恢復遊戲
+                    this.togglePause();
                     break;
             }
         });
@@ -104,6 +110,22 @@ class Game {
         this.canvas.addEventListener('mouseup', () => {
             this.isMouseDown = false;
         });
+    }
+
+    togglePause() {
+        this.isPaused = !this.isPaused;
+        if (this.isPaused) {
+            this.ctx.save();
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '36px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText('遊戲已暫停', this.canvas.width / 2, this.canvas.height / 2);
+            this.ctx.restore();
+        } else {
+            this.gameLoop();
+        }
     }
 
     updatePlayerMovement() {
@@ -249,6 +271,7 @@ class Game {
     }
 
     update() {
+        if (this.isPaused) return; // 暫停時不更新
         this.updatePlayerMovement();
         this.handleShooting();
         if (!this.boss && this.killCount >= this.nextBossKill) {
@@ -307,14 +330,34 @@ class Game {
         this.ctx.restore();
     }
 
+    updateCountdown() {
+        if (this.remainingTime > 0) {
+            this.remainingTime -= 1 / 60; // 每幀減少約 1/60 秒
+            this.displayCountdown();
+        }
+    }
+
+    displayCountdown() {
+        this.ctx.save();
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        this.ctx.fillRect(10, 10, 200, 50);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '24px Arial';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(`倒數計時: ${Math.ceil(this.remainingTime)} 秒`, 20, 40);
+        this.ctx.restore();
+    }
+
     gameLoop() {
         if (this.player.hp <= 0) {
             this.displayGameOver();
             return;
         }
         if (this.isVictory) return; // 勝利時停止遊戲迴圈
+        if (this.isPaused) return; // 暫停時停止遊戲迴圈
         this.update();
         this.draw();
+        this.updateCountdown(); // 更新倒數計時
         requestAnimationFrame(this.gameLoop);
     }
 
@@ -344,6 +387,14 @@ window.addEventListener('load', () => {
     bgm.loop = false;
     bgm.volume = 0.5;
     let gameInstance = null;
+
+    bgm.addEventListener('loadedmetadata', () => {
+        if (gameInstance) {
+            gameInstance.bgmDuration = bgm.duration;
+            gameInstance.remainingTime = bgm.duration;
+        }
+    });
+
     // 等待第一次互動才播放音樂
     const playBgmOnce = () => {
         if (bgm.paused) bgm.play();
