@@ -29,8 +29,18 @@ class Game {
         this.lastShot = 0;
         this.shootInterval = 150; // 連射間隔(毫秒)
         
+        this.boss = null;
+        this.killCount = 0;
+        this.nextBossKill = this.getRandomBossKill();
+        
+        this.isVictory = false; // 新增：勝利旗標
+        
         this.setupControls();
         this.gameLoop();
+    }
+
+    getRandomBossKill() {
+        return Math.floor(Math.random() * 16) + 10; // 10~25
     }
 
     setupControls() {
@@ -48,6 +58,10 @@ class Game {
                     break;
                 case 'd':
                     this.keys.ArrowRight = true;
+                    break;
+                case ' ': // 空白鍵發射導彈
+                    e.preventDefault();
+                    this.player.shootMissile();
                     break;
             }
         });
@@ -117,6 +131,7 @@ class Game {
     }
 
     spawnEnemy() {
+        if (this.boss) return; // Boss出現時不產生小怪
         const now = Date.now();
         if (now - this.lastEnemySpawn > this.enemySpawnInterval) {
             // 隨機選擇敵人生成位置（四周）
@@ -158,32 +173,58 @@ class Game {
                     isHit = true;
                     this.score += 10;
                     document.getElementById('scoreValue').textContent = this.score;
-
+                    this.killCount++;
                     // 5% 機率掉落回血道具
                     if (Math.random() < 0.05) {
                         this.spawnHealthItem(enemy.x, enemy.y);
                     }
-
                     return false;
                 }
                 return true;
             });
-
             if (this.checkCollision(enemy, this.player) && !this.player.isInvincible) {
                 const damage = Math.floor(Math.random() * 5) + 1;
                 this.player.takeDamage(damage);
                 document.getElementById('hpValue').textContent = this.player.hp;
                 return false;
             }
-
             if (enemy.x < -50 || enemy.x > this.canvas.width + 50 ||
                 enemy.y < -50 || enemy.y > this.canvas.height + 50) {
                 return false;
             }
-
             return !isHit;
         });
-
+        // Boss碰撞
+        if (this.boss) {
+            this.player.bullets = this.player.bullets.filter(bullet => {
+                if (this.checkCollision(bullet, this.boss)) {
+                    this.boss.hp -= 10;
+                    return false;
+                }
+                return true;
+            });
+            // 導彈擊中boss
+            this.player.missiles = this.player.missiles.filter(missile => {
+                if (this.checkCollision(missile, this.boss)) {
+                    this.boss.hp -= 100; // 導彈傷害為子彈10倍
+                    missile.isActive = false;
+                    // 播放導彈命中音效
+                    this.player.missileHitAudio.currentTime = 0;
+                    this.player.missileHitAudio.play();
+                    return false;
+                }
+                return true;
+            });
+            if (this.checkCollision(this.boss, this.player) && !this.player.isInvincible) {
+                this.player.takeDamage(15);
+                document.getElementById('hpValue').textContent = this.player.hp;
+            }
+            if (this.boss.hp <= 0) {
+                this.boss = null;
+                this.killCount = 0;
+                this.nextBossKill = this.getRandomBossKill();
+            }
+        }
         // 檢測玩家與回血道具的碰撞
         this.healthItems = this.healthItems.filter(item => {
             if (this.checkCollision(item, this.player)) {
@@ -210,32 +251,60 @@ class Game {
     update() {
         this.updatePlayerMovement();
         this.handleShooting();
+        if (!this.boss && this.killCount >= this.nextBossKill) {
+            this.boss = new Boss(
+                Math.random() * (this.canvas.width - 100) + 50,
+                Math.random() * (this.canvas.height - 100) + 50
+            );
+        }
         this.spawnEnemy();
         this.player.update();
-        
-        // 更新敵人移動方向（朝向玩家）
-        this.enemies.forEach(enemy => {
-            const dx = this.player.x - enemy.x;
-            const dy = this.player.y - enemy.y;
-            const angle = Math.atan2(dy, dx);
-            enemy.speedX = Math.cos(angle) * enemy.speed;
-            enemy.speedY = Math.sin(angle) * enemy.speed;
-            enemy.update();
-        });
-        
+        if (this.boss) {
+            this.boss.update(this.player);
+        }
+        this.enemies.forEach(enemy => enemy.update(this.player));
         this.checkCollisions();
     }
 
     draw() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.player.draw(this.ctx);
-        this.enemies.forEach(enemy => enemy.draw(this.ctx));
-
-        // 繪製回血道具
+        if (this.boss) {
+            this.boss.draw(this.ctx, this.player);
+        }
+        this.enemies.forEach(enemy => enemy.draw(this.ctx, this.player));
         this.healthItems.forEach(item => {
             this.ctx.fillStyle = item.color;
             this.ctx.fillRect(item.x, item.y, item.width, item.height);
         });
+        // 導彈冷卻條
+        this.drawMissileCooldownBar();
+    }
+
+    drawMissileCooldownBar() {
+        const barW = 240, barH = 18;
+        const x = (this.canvas.width - barW) / 2;
+        const y = this.canvas.height - barH - 18;
+        const cd = this.player.missileCooldown;
+        const cdMax = this.player.missileCooldownMax;
+        this.ctx.save();
+        this.ctx.fillStyle = '#222';
+        this.ctx.fillRect(x, y, barW, barH);
+        this.ctx.fillStyle = cd === 0 ? '#0f0' : '#ff8800';
+        this.ctx.fillRect(x, y, barW * (1 - cd / cdMax), barH);
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(x, y, barW, barH);
+        this.ctx.font = '16px Arial';
+        this.ctx.fillStyle = '#fff';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        if (cd === 0) {
+            this.ctx.fillText('導彈已就緒 (空白鍵)', x + barW / 2, y + barH / 2);
+        } else {
+            this.ctx.fillText('導彈冷卻中 ' + (cd / 1000).toFixed(1) + ' 秒', x + barW / 2, y + barH / 2);
+        }
+        this.ctx.restore();
     }
 
     gameLoop() {
@@ -243,7 +312,7 @@ class Game {
             this.displayGameOver();
             return;
         }
-
+        if (this.isVictory) return; // 勝利時停止遊戲迴圈
         this.update();
         this.draw();
         requestAnimationFrame(this.gameLoop);
@@ -256,9 +325,56 @@ class Game {
         ctx.textAlign = 'center';
         ctx.fillText('Game Over', this.canvas.width / 2, this.canvas.height / 2);
     }
+
+    displayVictory() {
+        this.isVictory = true;
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.fillStyle = '#0f0';
+        ctx.font = '48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('遊戲勝利！', this.canvas.width / 2, this.canvas.height / 2);
+        ctx.restore();
+    }
 }
 
 // 啟動遊戲
 window.addEventListener('load', () => {
-    new Game();
+    const bgm = new Audio('LUCKY DRAW - Chance Chase Theme _ Forsaken UST.mp3');
+    bgm.loop = false;
+    bgm.volume = 0.5;
+    let gameInstance = null;
+    // 等待第一次互動才播放音樂
+    const playBgmOnce = () => {
+        if (bgm.paused) bgm.play();
+        document.removeEventListener('mousedown', playBgmOnce);
+        document.removeEventListener('keydown', playBgmOnce);
+    };
+    document.addEventListener('mousedown', playBgmOnce);
+    document.addEventListener('keydown', playBgmOnce);
+    bgm.addEventListener('ended', () => {
+        if (gameInstance) gameInstance.displayVictory();
+    });
+    gameInstance = new Game();
+    // 將 displayVictory 方法加到 Game
+    gameInstance.displayVictory = function() {
+        this.isVictory = true;
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.fillStyle = '#0f0';
+        ctx.font = '48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('遊戲勝利！', this.canvas.width / 2, this.canvas.height / 2);
+        ctx.restore();
+    };
+    // 當主角死亡時停止音樂
+    gameInstance.displayGameOver = function() {
+        bgm.pause();
+        bgm.currentTime = 0;
+        const ctx = this.ctx;
+        ctx.fillStyle = 'red';
+        ctx.font = '48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over', this.canvas.width / 2, this.canvas.height / 2);
+    };
 });
